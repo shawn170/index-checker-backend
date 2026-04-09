@@ -6,7 +6,7 @@ import concurrent.futures
 app = Flask(__name__)
 CORS(app)
 
-GOOGLE_API_KEY = "AIzaSyAVG7VwIZ2Wg4tAYWt7ef_gbbz9TAdhBVo"
+GOOGLE_API_KEY = "AIzaSyDzP5LXKw9870TKqyjqUVOE1pqj8L4KBQs"
 SEARCH_ENGINE_ID = "c373598a0f8b546f4"
 
 def check_index(url):
@@ -15,7 +15,6 @@ def check_index(url):
         if not url:
             return None
 
-        # Add https if missing
         if not url.startswith("http"):
             url = "https://" + url
 
@@ -31,29 +30,18 @@ def check_index(url):
         response = requests.get(api_url, params=params, timeout=15)
         data = response.json()
 
-        # Handle API errors
         if "error" in data:
             error_msg = data["error"].get("message", "Unknown error")
-            # Check if daily limit reached
             if "quota" in error_msg.lower() or "limit" in error_msg.lower():
                 return {"url": url, "status": "error", "message": "Daily limit reached (100/day). Try again tomorrow."}
             return {"url": url, "status": "error", "message": error_msg}
 
-        # Get total results from Google
         total_results = int(data.get("searchInformation", {}).get("totalResults", "0"))
 
         if total_results > 0:
-            return {
-                "url": url,
-                "status": "indexed",
-                "total_results": total_results
-            }
+            return {"url": url, "status": "indexed", "total_results": total_results}
         else:
-            return {
-                "url": url,
-                "status": "not_indexed",
-                "total_results": 0
-            }
+            return {"url": url, "status": "not_indexed", "total_results": 0}
 
     except requests.exceptions.Timeout:
         return {"url": url, "status": "error", "message": "Timeout - try again"}
@@ -82,7 +70,6 @@ def check_urls():
     if len(clean_urls) > 100:
         return jsonify({"error": "Maximum 100 URLs per day (Google free limit)"}), 400
 
-    # Run 5 checks at the same time for speed
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         results = list(executor.map(check_index, clean_urls))
         results = [r for r in results if r is not None]
