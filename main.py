@@ -6,8 +6,7 @@ import concurrent.futures
 app = Flask(__name__)
 CORS(app)
 
-GOOGLE_API_KEY = "AIzaSyDzP5LXKw9870TKqyjqUVOE1pqj8L4KBQs"
-SEARCH_ENGINE_ID = "c373598a0f8b546f4"
+SERP_API_KEY = "768e4a39e00bed46e1227db7045e8ca4331fd6dd011b37220c28cb130bb2f021"
 
 def check_index(url):
     try:
@@ -18,30 +17,42 @@ def check_index(url):
         if not url.startswith("http"):
             url = "https://" + url
 
-        query = f"site:{url}"
-        api_url = "https://www.googleapis.com/customsearch/v1"
         params = {
-            "key": GOOGLE_API_KEY,
-            "cx": SEARCH_ENGINE_ID,
-            "q": query,
-            "num": 1
+            "engine": "google",
+            "q": f"site:{url}",
+            "api_key": SERP_API_KEY,
+            "num": 1,
+            "hl": "en",
+            "gl": "us"
         }
 
-        response = requests.get(api_url, params=params, timeout=15)
+        response = requests.get("https://serpapi.com/search", params=params, timeout=30)
         data = response.json()
 
+        # Check for API errors
         if "error" in data:
-            error_msg = data["error"].get("message", "Unknown error")
-            if "quota" in error_msg.lower() or "limit" in error_msg.lower():
-                return {"url": url, "status": "error", "message": "Daily limit reached (100/day). Try again tomorrow."}
+            error_msg = data["error"]
+            if "rate" in error_msg.lower() or "limit" in error_msg.lower():
+                return {"url": url, "status": "error", "message": "Daily limit reached (250/day)"}
             return {"url": url, "status": "error", "message": error_msg}
 
-        total_results = int(data.get("searchInformation", {}).get("totalResults", "0"))
+        # Check organic results
+        organic_results = data.get("organic_results", [])
+        search_info = data.get("search_information", {})
+        total_results = search_info.get("total_results", 0)
 
-        if total_results > 0:
-            return {"url": url, "status": "indexed", "total_results": total_results}
+        if organic_results or total_results > 0:
+            return {
+                "url": url,
+                "status": "indexed",
+                "total_results": total_results
+            }
         else:
-            return {"url": url, "status": "not_indexed", "total_results": 0}
+            return {
+                "url": url,
+                "status": "not_indexed",
+                "total_results": 0
+            }
 
     except requests.exceptions.Timeout:
         return {"url": url, "status": "error", "message": "Timeout - try again"}
@@ -52,8 +63,9 @@ def check_index(url):
 @app.route("/")
 def home():
     return jsonify({
-        "message": "Index Checker API running with Google Custom Search!",
-        "accuracy": "100% - powered by Google"
+        "message": "Index Checker API running with SerpAPI!",
+        "accuracy": "100% - powered by Google via SerpAPI",
+        "daily_limit": "250 searches/day"
     })
 
 
@@ -67,9 +79,10 @@ def check_urls():
 
     clean_urls = [u.strip() for u in urls if u.strip()]
 
-    if len(clean_urls) > 100:
-        return jsonify({"error": "Maximum 100 URLs per day (Google free limit)"}), 400
+    if len(clean_urls) > 250:
+        return jsonify({"error": "Maximum 250 URLs per day (SerpAPI free limit)"}), 400
 
+    # Run 5 checks at the same time for speed
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         results = list(executor.map(check_index, clean_urls))
         results = [r for r in results if r is not None]
